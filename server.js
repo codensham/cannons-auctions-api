@@ -62,8 +62,15 @@ app.get('/health', (req, res) => {
  *         name: search
  *         schema:
  *           type: string
- *         description: Search term to filter items (empty returns all)
+ *         description: Search term to filter items (empty returns all). Cannons matches each word separately, so multi-word terms return items matching any one word.
  *         example: ""
+ *       - in: query
+ *         name: exactPhrase
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: When true, keep only lots whose description contains the whole search phrase. Fetches each lot's detail page, so it is slower. Applies to the current page of results.
+ *         example: true
  *       - in: query
  *         name: filter
  *         schema:
@@ -154,7 +161,7 @@ app.get('/health', (req, res) => {
  */
 app.get('/api/search', async (req, res) => {
   try {
-    const { search, filter, sortBy, page, pagesize, minBid, maxBid, sanitize } = req.query;
+    const { search, filter, sortBy, page, pagesize, minBid, maxBid, sanitize, exactPhrase } = req.query;
 
     const html = await fetchSearchResults({
       search: search || '',
@@ -190,6 +197,14 @@ app.get('/api/search', async (req, res) => {
         const normalizedDesc = (item.description || '').toLowerCase().replace(/[^\w\s]/g, '');
         return normalizedTitle.includes(normalizedSearch) || normalizedDesc.includes(normalizedSearch);
       });
+      results.pagination.totalItems = results.items.length;
+      results.pagination.totalPages = Math.ceil(results.items.length / 100);
+    }
+
+    // Cannons matches each word separately (OR), so "bomber jacket" returns every jacket.
+    // exactPhrase=true keeps only lots whose description contains the whole search phrase.
+    if (exactPhrase === 'true' && search) {
+      results.items = await filterByExactPhrase(results.items, search);
       results.pagination.totalItems = results.items.length;
       results.pagination.totalPages = Math.ceil(results.items.length / 100);
     }
@@ -657,6 +672,57 @@ async function fetchSearchResults(params) {
     console.error('Error fetching search results:', error.message);
     throw error;
   }
+}
+
+/**
+ * Fetch one lot's detail page HTML (needs the session cookie like the other Cannons requests)
+ */
+async function fetchDetailHtml(detailUrl) {
+  const { cookie } = await getSessionCookie();
+  const response = await axios.get(detailUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0',
+      'Cookie': cookie,
+    }
+  });
+  return response.data;
+}
+
+/**
+ * Text the search phrase is checked against: the lot's description and title meta tags
+ */
+function lotDescriptionText(html) {
+  const $ = cheerio.load(html);
+  return [
+    $('meta[property="og:title"]').attr('content'),
+    $('meta[property="og:description"]').attr('content'),
+    $('meta[name="description"]').attr('content'),
+  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Keep only items whose detail description contains the whole phrase (case-insensitive).
+ * Items whose detail page cannot be read are dropped, since they cannot be confirmed.
+ * Detail pages are fetched in small batches to avoid hammering Cannons.
+ */
+async function filterByExactPhrase(items, phrase) {
+  const wanted = phrase.replace(/\s+/g, ' ').trim().toLowerCase();
+  const kept = [];
+  const BATCH = 5;
+  for (let i = 0; i < items.length; i += BATCH) {
+    const batch = items.slice(i, i + BATCH);
+    const checks = await Promise.all(batch.map(async item => {
+      try {
+        const html = await fetchDetailHtml(item.detailUrl);
+        return lotDescriptionText(html).includes(wanted) ? item : null;
+      } catch (error) {
+        console.error(`Exact phrase check failed for lot ${item.lotNumber}:`, error.message);
+        return null;
+      }
+    }));
+    kept.push(...checks.filter(Boolean));
+  }
+  return kept;
 }
 
 /**

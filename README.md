@@ -78,6 +78,7 @@ GET /api/search?search=keyword&filter=Current&sortBy=enddate_asc&page=1&pagesize
 | `minBid` | number | `null` | Minimum bid filter (e.g., 10) |
 | `maxBid` | number | `null` | Maximum bid filter (e.g., 100) |
 | `sanitize` | boolean | `false` | Normalize text for better matching (lowercase, remove punctuation) |
+| `exactPhrase` | boolean | `false` | When `true`, keep only lots whose description contains the whole `search` phrase. Cannons otherwise matches any single word. Slower (fetches each lot's detail page); applies to the current page |
 
 **Response:**
 ```json
