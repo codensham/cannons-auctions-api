@@ -20,6 +20,9 @@ npm install
 node server.js
 
 # Server runs on http://localhost:1337
+
+# Run tests
+npm test
 ```
 
 ## MCP (Model Context Protocol)
@@ -119,7 +122,7 @@ GET /api/search?search=keyword&filter=Current&sortBy=enddate_asc&page=1&pagesize
 GET /api/auctions?page=1&pagesize=20
 ```
 
-Returns auctions grouped by event with item counts and bid ranges.
+Returns auctions grouped by auction ID with item counts and bid ranges.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -285,6 +288,7 @@ curl "http://localhost:1337/api/search?maxBid=25"
 ### Key Files
 
 - `server.js` - Main Express server with all API endpoints
+- `lib/parseSearchResults.js` - Parses a search results page into lots. Each lot gets the title of the "Auction :" section it sits under, so lots from different auctions on one page get their own names
 - `package.json` - Dependencies
 
 ## Environment
