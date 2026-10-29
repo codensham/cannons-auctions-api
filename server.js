@@ -4,6 +4,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { parseSearchResults } = require('./lib/parseSearchResults');
 const { auctionDateToIso } = require('./lib/auctionTime');
+const { htmlToText } = require('./lib/htmlToText');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
@@ -527,6 +528,7 @@ function parseItemDetail(html) {
     const metaDesc = $('meta[property="og:description"]').attr('content');
     if (metaDesc) description = metaDesc;
   }
+  description = htmlToText(description);
 
   // Extract lot number
   let lotNumber = '';
@@ -534,10 +536,10 @@ function parseItemDetail(html) {
   const lotMatch = lotText.match(/Lot\s*#?\s*(\d+)/i);
   if (lotMatch) lotNumber = lotMatch[1];
 
-  // Extract title
-  const title = $('.item-detail-title').first().text().trim() ||
-                $('h1').first().text().trim() ||
-                description;
+  // Extract title. Many lots have no title of their own, so the description stands in, on one line.
+  const title = ($('.item-detail-title').first().text().trim() ||
+                 $('h1').first().text().trim() ||
+                 description).replace(/\s*\n\s*/g, ' ');
 
   // Extract category and quantity from category-info spans
   let category = '';
@@ -566,6 +568,10 @@ function parseItemDetail(html) {
     currentBid = parseFloat(currentBidVal);
   }
 
+  // Number of bids, from the "Bid History(7)" link
+  const bidHistoryMatch = $.text().match(/Bid History\s*\((\d+)\)/);
+  const bidCount = bidHistoryMatch ? parseInt(bidHistoryMatch[1], 10) : null;
+
   // Extract images
   const images = [];
   $('.item-detail-images img, .carousel-item img').each((_, img) => {
@@ -591,6 +597,7 @@ function parseItemDetail(html) {
     quantity,
     startingBid,
     currentBid,
+    bidCount,
     endDate,
     images,
     auctionTitle
