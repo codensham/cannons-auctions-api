@@ -35,3 +35,25 @@ test('a lot from the Vintage Gaming auction gets its own name', () => {
   const lego = items.find(item => item.ids.auctionId.startsWith('gohBGDq+vm'));
   assert.equal(lego.auctionTitle, '10/31/26: Vintage Gaming, LEGO, Toys & Collectibles | Ample Seller | Richmond VA 23227');
 });
+
+test('pagination comes from the "Showing" line, not the page links', () => {
+  // The fixture says "Showing 1 - 100 of 113"
+  assert.deepEqual(parseSearchResults(html).pagination, {
+    currentPage: 1,
+    totalPages: 2,
+    totalItems: 113,
+    itemsPerPage: 100,
+  });
+});
+
+test('pagination follows the page and page size that were asked for', () => {
+  const html1000 = html.replace(/1 - 100 of 113/g, '1001 - 2000 of 4,557');
+  assert.deepEqual(parseSearchResults(html1000, { page: 2, pagesize: 1000 }).pagination, {
+    currentPage: 2,
+    totalPages: 5,
+    totalItems: 4557,
+    itemsPerPage: 1000,
+  });
+  // Without the request's numbers they are worked out from the line itself
+  assert.equal(parseSearchResults(html1000).pagination.currentPage, 2);
+});

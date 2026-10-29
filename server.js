@@ -165,15 +165,17 @@ app.get('/api/search', async (req, res) => {
   try {
     const { search, filter, sortBy, page, pagesize, minBid, maxBid, sanitize, exactPhrase } = req.query;
 
+    const pageNum = parseInt(page) || 1;
+    const pageSizeNum = parseInt(pagesize) || 100;
     const html = await fetchSearchResults({
       search: search || '',
       filter: filter || 'Current',
       sortBy: sortBy || '',
-      page: parseInt(page) || 1,
-      pagesize: parseInt(pagesize) || 100
+      page: pageNum,
+      pagesize: pageSizeNum
     });
 
-    let results = parseSearchResults(html);
+    let results = parseSearchResults(html, { page: pageNum, pagesize: pageSizeNum });
 
     // Filter by price range if specified
     if (minBid !== undefined || maxBid !== undefined) {
@@ -402,7 +404,7 @@ app.get('/api/auctions/:auctionId/items', async (req, res) => {
       auctionId: auctionId
     });
 
-    let results = parseSearchResults(html);
+    let results = parseSearchResults(html, { page: parseInt(page), pagesize: parseInt(pagesize) });
 
     // Filter to only items from this auction
     results.items = results.items.filter(item => item.ids.auctionId === auctionId);
