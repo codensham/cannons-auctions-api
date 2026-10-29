@@ -3,6 +3,7 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { parseSearchResults } = require('./lib/parseSearchResults');
+const { auctionDateToIso } = require('./lib/auctionTime');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
@@ -574,9 +575,8 @@ function parseItemDetail(html) {
   });
 
   // Extract end date
-  let endDate = null;
   const dateText = $('.local-date-time').first().data('auc-date');
-  if (dateText) endDate = new Date(dateText).toISOString();
+  const endDate = auctionDateToIso(dateText);
 
   // Extract auction title
   const auctionTitle = $('.breadcrumb-auction-title').first().text().trim();
