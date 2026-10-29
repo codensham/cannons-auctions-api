@@ -5,6 +5,7 @@ const cheerio = require('cheerio');
 const { parseSearchResults } = require('./lib/parseSearchResults');
 const { auctionDateToIso } = require('./lib/auctionTime');
 const { htmlToText } = require('./lib/htmlToText');
+const { parseBidList, parseBidContext } = require('./lib/parseBidList');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
@@ -476,29 +477,8 @@ app.get('/api/item/:itemId/:auctionId', async (req, res) => {
     const { itemId, auctionId } = req.params;
     const { pageNumber, pageSize } = req.query;
 
-    const { cookie, token } = await getSessionCookie();
-
-    const queryParams = new URLSearchParams({
-      pageNumber: pageNumber || '',
-      pageSize: pageSize || '',
-      AuctionItemId: itemId,
-      AuctionId: auctionId
-    });
-
-    const response = await axios.get(
-      `${BASE_URL}/Public/Auction/AuctionItemDetail?${queryParams}`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cookie': cookie,
-          ...(token && { '__RequestVerificationToken': token })
-        }
-      }
-    );
-
-    const itemDetail = parseItemDetail(response.data);
+    const html = await fetchItemDetailPage(itemId, auctionId, pageNumber, pageSize);
+    const itemDetail = parseItemDetail(html);
 
     res.json({
       success: true,
@@ -512,6 +492,87 @@ app.get('/api/item/:itemId/:auctionId', async (req, res) => {
     });
   }
 });
+
+/**
+ * @swagger
+ * /api/item/{itemId}/{auctionId}/bids:
+ *   get:
+ *     summary: Get a lot's bid history
+ *     description: Every bid on the lot, oldest first, with the lot's price after each one, plus the starting bid. Bidders are masked by Cannons.
+ *     parameters:
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: auctionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: pageNumber
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: "{ startingBid, bids: [{ bidNumber, bidder, amount, price, leader, time }] }"
+ *       500:
+ *         description: Error fetching the bid history
+ */
+app.get('/api/item/:itemId/:auctionId/bids', async (req, res) => {
+  try {
+    const { itemId, auctionId } = req.params;
+    const { pageNumber, pageSize } = req.query;
+
+    // The bid list is keyed by the lot's numeric id, which only the detail page shows
+    const detailHtml = await fetchItemDetailPage(itemId, auctionId, pageNumber, pageSize);
+    const { numericId, startingBid } = parseBidContext(detailHtml);
+    if (!numericId) throw new Error('No lot id on the detail page');
+
+    const { cookie } = await getSessionCookie();
+    const response = await axios.get(`${BASE_URL}/Public/Auction/GetBidlist`, {
+      params: { AuctionItemId: numericId, NameSearch: '', pageNumber: 1, pageSize: 1000, _: Date.now() },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookie,
+      },
+    });
+
+    res.json({ success: true, data: { startingBid, bids: parseBidList(response.data) } });
+  } catch (error) {
+    console.error('Bid history error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Fetch a lot's detail page HTML
+ */
+async function fetchItemDetailPage(itemId, auctionId, pageNumber, pageSize) {
+  const { cookie, token } = await getSessionCookie();
+  const queryParams = new URLSearchParams({
+    pageNumber: pageNumber || '',
+    pageSize: pageSize || '',
+    AuctionItemId: itemId,
+    AuctionId: auctionId
+  });
+  const response = await axios.get(`${BASE_URL}/Public/Auction/AuctionItemDetail?${queryParams}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cookie': cookie,
+      ...(token && { '__RequestVerificationToken': token })
+    }
+  });
+  return response.data;
+}
 
 /**
  * Parse item detail page HTML to extract structured data
